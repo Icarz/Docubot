@@ -1,0 +1,10 @@
+venv/
+frontend/
+__pycache__/
+.env
+*.pyc
+chroma_data/
+uploads/
+conversations.db
+.claude/
+bash.exe.stackdump
