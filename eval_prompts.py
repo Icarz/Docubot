@@ -1,24 +1,11 @@
 import anthropic
 import json
-import re
-from pydantic import BaseModel
+from models import DocumentAnswer, extract_json_from_markdown, DOCUMENT_QA_SYSTEM_PROMPT
 from dotenv import load_dotenv
 
 load_dotenv()
 client = anthropic.Anthropic()
 
-class DocumentAnswer(BaseModel):
-    reasoning: str
-    answer: str
-    confidence: str
-    section_referenced: str
-    sources: list[str]
-
-def extract_json_from_markdown(text):
-    match = re.search(r'```(?:json)?\n(.*?)\n```', text, re.DOTALL)
-    if match:
-        return match.group(1)
-    return text
 
 SAMPLE_DOCUMENT = """
 COMPANY REFUND AND RETURN POLICY (Section 3)
@@ -39,28 +26,7 @@ the returned item. The refund is issued to the original payment method.
 For refund requests, contact support@company.com or call 1-800-COMPANY.
 """
 
-system_prompt = """You are a document assistant. Answer questions about documents provided by the user.
-
-REASONING PROCESS:
-1. Search the document for relevant information
-2. Identify the specific section and quote
-3. Evaluate your confidence in the answer
-4. Explain your reasoning clearly
-
-RULES:
-1. Only use information from the provided document.
-2. If the answer is not in the document, say: "I cannot find this information in the provided document."
-3. Always cite which section you're referencing.
-
-Return your response as valid JSON:
-{
-  "reasoning": "",
-  "answer": "",
-  "confidence": "",
-  "section_referenced": "
-",
-  "sources": [""]
-}"""
+system_prompt = DOCUMENT_QA_SYSTEM_PROMPT
 
 def get_answer(question):
     """Get a structured answer from Claude."""

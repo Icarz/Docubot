@@ -42,3 +42,8 @@ Thumbs.db
 # Project-specific
 bash.exe.stackdump
 *.stackdump
+chroma_data/
+conversations.db
+docubot.db
+*.db
+uploads/

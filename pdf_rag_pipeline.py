@@ -1,32 +1,17 @@
 import chromadb
 import anthropic
 import json
-import re
 from sentence_transformers import SentenceTransformer
-from pydantic import BaseModel
 from pdf_parser import process_pdf
+from models import DocumentAnswer, extract_json_from_markdown, DOCUMENT_QA_SYSTEM_PROMPT
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize ChromaDB client and embedding function
-client = chromadb.Client()
+CHROMA_PERSIST_DIR = "./chroma_data"
+client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Define the output model
-class DocumentAnswer(BaseModel):
-    reasoning: str
-    answer: str
-    confidence: str
-    section_referenced: str
-    sources: list[str]
-
-def extract_json_from_markdown(text):
-    """Remove markdown code blocks if present."""
-    match = re.search(r'```(?:json)?\n(.*?)\n```', text, re.DOTALL)
-    if match:
-        return match.group(1)
-    return text
 
 def ingest_pdf(pdf_path, collection_name="docubot"):
     """
@@ -107,22 +92,7 @@ def rag_query(question, collection_name="docubot", top_k=3):
     # Step 3: Call Claude with context
     claude_client = anthropic.Anthropic()
     
-    system_prompt = """You are a document assistant. Answer questions using ONLY the provided document context.
-
-RULES:
-1. Only use information from the provided document.
-2. If the answer is not in the document, say: "I cannot find this information in the provided document."
-3. Always cite which section you're referencing.
-4. Show your reasoning process.
-
-Return your response as valid JSON:
-{
-  "reasoning": "<explain how you found the answer>",
-  "answer": "<the answer>",
-  "confidence": "<high/medium/low>",
-  "section_referenced": "<section name>",
-  "sources": ["<exact quote from document>"]
-}"""
+    system_prompt = DOCUMENT_QA_SYSTEM_PROMPT
     
     user_message = f"""Document context:
 {context}
