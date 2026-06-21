@@ -14,9 +14,13 @@ from contextlib import asynccontextmanager
 
 import chromadb
 import anthropic
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from dotenv import load_dotenv
 
 from pdf_parser import process_pdf
@@ -99,12 +103,23 @@ async def lifespan(app: FastAPI):
     yield
 
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="DocuBot API",
     description="AI-powered document assistant with RAG",
     version="2.0.0",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Try again later.", "limit": str(exc.detail)},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -166,7 +181,9 @@ async def health_check():
 
 
 @app.post("/upload", response_model=UploadResponse)
+@limiter.limit("5/hour")
 async def upload_pdf(
+    request: Request,
     file: UploadFile = File(...),
     collection_name: str = Form("docubot"),
 ):
@@ -198,29 +215,30 @@ async def upload_pdf(
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+@limiter.limit("10/hour")
+async def chat(request: Request, request_body: ChatRequest):
     chroma: chromadb.ClientAPI = app.state.chroma
     claude: anthropic.Anthropic = app.state.claude
 
     try:
-        collection = chroma.get_collection(name=request.collection_name)
+        collection = chroma.get_collection(name=request_body.collection_name)
     except Exception:
         collection = None
 
     context = ""
     if collection and collection.count() > 0:
-        results = collection.query(query_texts=[request.question], n_results=min(3, collection.count()))
+        results = collection.query(query_texts=[request_body.question], n_results=min(3, collection.count()))
         context = "\n\n".join(results["documents"][0])
 
-    history = load_conversation(request.conversation_id)
+    history = load_conversation(request_body.conversation_id)
 
     if context:
-        user_content = f"Document context:\n{context}\n\nUser question: {request.question}"
+        user_content = f"Document context:\n{context}\n\nUser question: {request_body.question}"
     else:
-        user_content = request.question
+        user_content = request_body.question
 
     history.append({"role": "user", "content": user_content})
-    save_message(request.conversation_id, "user", user_content)
+    save_message(request_body.conversation_id, "user", user_content)
 
     try:
         response = claude.messages.create(
@@ -232,15 +250,15 @@ async def chat(request: ChatRequest):
         )
 
         response_text = response.content[0].text
-        save_message(request.conversation_id, "assistant", response_text)
+        save_message(request_body.conversation_id, "assistant", response_text)
 
         if context:
             clean_json = extract_json_from_markdown(response_text)
             try:
                 parsed = DocumentAnswer(**json.loads(clean_json))
                 return ChatResponse(
-                    conversation_id=request.conversation_id,
-                    user_question=request.question,
+                    conversation_id=request_body.conversation_id,
+                    user_question=request_body.question,
                     answer=parsed.answer,
                     reasoning=parsed.reasoning,
                     confidence=parsed.confidence,
@@ -252,16 +270,16 @@ async def chat(request: ChatRequest):
                 pass
 
         return ChatResponse(
-            conversation_id=request.conversation_id,
-            user_question=request.question,
+            conversation_id=request_body.conversation_id,
+            user_question=request_body.question,
             answer=response_text,
             status="success",
         )
 
     except Exception as e:
         return ChatResponse(
-            conversation_id=request.conversation_id,
-            user_question=request.question,
+            conversation_id=request_body.conversation_id,
+            user_question=request_body.question,
             answer=str(e),
             status="error",
         )
