@@ -69,6 +69,11 @@ export default function Home() {
   }, [activeCollection, conversationId, userId]);
 
   const handleUpload = useCallback(async (file: File) => {
+    const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
+    if (file.size > MAX_FILE_SIZE) {
+      setUploadedFile({ name: file.name, status: "error", meta: "File too large (max 2 MB). This is a demo — use a smaller PDF." });
+      return;
+    }
     setUploadedFile({ name: file.name, status: "processing", meta: "Uploading…" });
     setSidebarOpen(false);
     try {

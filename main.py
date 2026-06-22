@@ -190,6 +190,15 @@ async def upload_pdf(
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
+    MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({len(contents)} bytes). Max allowed is {MAX_FILE_SIZE} bytes (2 MB). This is a demo — please use a smaller PDF.",
+        )
+    await file.seek(0)
+
     save_path = os.path.join(UPLOAD_DIR, file.filename)
     with open(save_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
